@@ -5,10 +5,8 @@ updating/.ipynb_checkpoints/*.*
 website_gen/.ipynb_checkpoints/*.*
 out/
 tmp/
+sources/CAS_ref_files/
 spike*.*
 *.html
-README_POC*.*
-website_gen/*.html
-website_gen/*.csv
-website_gen/*.txt
 *.pkl
+archive/

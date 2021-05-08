@@ -78,3 +78,13 @@ def cleanup_cas(cas):
     
     return f'{lst[0]}-{lst[1]}-{lst[2]}'
 
+def gen_check_digit(left='7732', middle='18'):
+    teststr = left+middle
+    teststr = teststr[::-1] # reverse for easy calculation
+    accum = 0
+    for i,digit in enumerate(teststr):
+        accum += (i+1)*int(digit)
+    print(accum%10)
+    
+if __name__ == '__main__':
+    gen_check_digit('107','09')    
