@@ -22,7 +22,7 @@ import sys
 def merge_with_ref(df):
     # df is the new casigs with cas_tool fields included
     # fetch the reference dataframes
-    ref = pd.read_csv('./out/CAS_ref_and_names.csv',
+    ref = pd.read_csv('./sources/CAS_ref_and_names.csv',
                       encoding='utf-8',quotechar='$')
     dep = pd.read_csv('./sources/CAS_deprecated.csv',encoding='utf-8',quotechar='$')
     
@@ -31,8 +31,8 @@ def merge_with_ref(df):
                     ref[['cas_number']],
                     left_on='tent_CAS',right_on='cas_number',how='left',
                     indicator=True)
-    test['stat'] = np.where(test['_merge']=='both',
-                              'verified;normal','unk') 
+    test['on_ref_list'] = np.where(test['_merge']=='both',
+                                   'verified;normal','unk') 
     test['bgCAS'] = np.where(test['_merge']=='both',
                              test.cas_number, # if in both, save the CAS
                              '') # otherwise leave it empty
@@ -52,8 +52,8 @@ def merge_with_ref(df):
         sys.exit(1)
         
     # mark the deprecated and take the valid CAS as bgCAS
-    test['stat'] = np.where(test['_merge']=='both',
-                              'verified;from deprecated',test.stat) 
+    test['on_ref_list'] = np.where(test['_merge']=='both',
+                              'verified;from deprecated',test.on_ref_list) 
     test['bgCAS'] = np.where(test['_merge']=='both',
                              test.cas_replacement,test.bgCAS)
     test = test.drop(['_merge','cas_number'],axis=1) # clean up before next merge
@@ -61,22 +61,24 @@ def merge_with_ref(df):
     # mark the CAS numbers that are formally valid but without authoritative cas in ref.
     #  these may be good targets for later curating
     cond1 = test.valid_after_cleaning
-    cond2 = test.stat=='unk'
+    cond2 = test.on_ref_list=='unk'
     test['bgCAS'] = np.where(cond1&cond2,'valid_but_empty',test.bgCAS)
-    test['stat'] = np.where(cond1&cond2,'valid_but_empty',test.stat)
+    test['on_ref_list'] = np.where(cond1&cond2,'valid_but_empty',test.on_ref_list)
     test = test.drop(['deprecated',
                       'cas_replacement','tent_CAS',
                       #'ing_name',
                       'valid_after_cleaning'],axis=1) # clean up before next merge
     test['is_new'] = True
     # Now concat with the old data (DONT MERGE - otherwise old gets clobbered!)
-    
-    old = pd.read_csv('./sources/CAS_master_list.csv',quotechar='$',
+    print(f'\nNumber of new CAS/Ing lines to curate: {len(test)}\n')
+    old = pd.read_csv('./sources/casing_curate_master.csv',quotechar='$',
                             encoding='utf-8')
     old = old[['CASNumber','IngredientName','bgCAS','category',
-               'date_added','date_curated']]
+               'close_syn','comment']]
     old['is_new'] = False    
     out = pd.concat([test,old],sort=True)
     
-    return out
+    return out[['CASNumber','IngredientName','bgCAS','category','is_new',
+                'clean_wo_work','on_ref_list',
+               'close_syn','comment']],len(test)
 

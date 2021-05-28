@@ -14,6 +14,7 @@ import re
 import csv
 import pandas as pd
 import numpy as np
+import core.cas_tools as ct
 #import core.FF_stats as ffstats
 
 
@@ -31,17 +32,57 @@ class Read_FF():
         self.sources = sources
         self.missing_values = self.getMissingList()
         self.dropList = ['ClaimantCompany', 'DTMOD', 'DisclosureKey', 
-                         'IngredientComment', 'IngredientMSDS',
+                         #'IngredientComment', 
+                         'IngredientMSDS',
                          'IsWater', 'PurposeIngredientMSDS',
                          'PurposeKey', 'PurposePercentHFJob', 'Source', 
                          'SystemApproach'] # not used, speeds up processing
         self.startfile = startfile
         self.endfile = endfile
+        self.cols_to_clean = ['OperatorName','Supplier','TradeName',
+                              'CASNumber','IngredientName']
+        self.cols_to_lower = ['IngredientName']
         
     def getMissingList(self):
         df = pd.read_csv(self.sources+ 'missing_values.csv')
         return df.missing_value.tolist()
+    
+    def get_density_from_comment(self,cmmt):
+        """take a comment field and return density if it is present"""
+        if pd.isna(cmmt):
+            return np.NaN
+        #print(cmmt)
+        if 'density' not in cmmt.lower():
+            return np.NaN
+        try:
+            dens = re.findall(r"(\d*\.\d+|\d+)",cmmt)[0]
+            return float(dens)
+        except:
+            return np.NaN
+        
+    def clean_cols(self,df,cols=[]):
+        if cols ==[]: 
+            workcols = self.cols_to_clean
+        else:
+            workcols = []
+            for col in cols:
+                if col in self.cols_to_clean:
+                    workcols.append(col)
 
+        for colname in workcols:
+            print(f'   -- cleaning {colname}')
+            gb = df.groupby(colname,as_index=False).size()
+            # replace return, newline, tab with single space
+            gb['clean'] = gb[colname].replace(r'\r+|\n+|\t+',' ', regex=True)
+            # remove whitespace from the ends
+            gb.clean = gb.clean.str.strip()
+            if colname in self.cols_to_lower:
+                gb.clean = gb.clean.str.lower()
+            df = pd.merge(df,gb,on=colname,how='left',validate='m:1')
+            df.rename({colname:'oldRaw','clean':colname},axis=1,inplace=True)
+            df.drop(['oldRaw','size'],axis=1,inplace=True)
+        return df
+    
     def import_raw(self):
         """
         """
@@ -66,19 +107,27 @@ class Read_FF():
                     print(f' -- processing {fn}')
                     t = pd.read_csv(f,low_memory=False,
                                     dtype={'APINumber':'str',
+                                           'CASNumber':'str',
+                                           'IngredientName':'str',
+                                           'Supplier':'str',
+                                           'OperatorName':'str',
+                                           'StateName':'str',
+                                           'CountyName':'str',
                                            'FederalWell':'str',
-                                           'IndianWell':'str'},
+                                           'IndianWell':'str',
+                                           'IngredientComment': 'str'},
                                     na_values = self.missing_values)
                     # we need an indicator of the presence of IngredientKey
                     # whitout keeping the whole honking thing around
-                    t['ingKeyPresent'] = np.where(t.IngredientKey.isna(),
-                                                  False,True)
+                    t['ingKeyPresent'] = t.IngredientKey.notna()
                     t['raw_filename'] = fn # helpful for manual searches of raw files
-                    t['record_flags'] = 'B'  #bulk download flag (in allrec)
+                    #t['record_flags'] = 'B'  #bulk download flag (in allrec)
                     t['data_source'] = 'bulk' # for event table
-                    
+                    t['density_from_comment'] = t.IngredientComment\
+                                                .map(lambda x: self.get_density_from_comment(x))
                     dflist.append(t)
         final = pd.concat(dflist,sort=True)
+        final = self.clean_cols(final)
         return final
         
     def import_raw_as_str(self,varsToKeep=['UploadKey','APINumber',
@@ -112,7 +161,7 @@ class Read_FF():
             dtypes = {}
             for v in varsToKeep:
                 dtypes[v] = 'str'
-            for fn in infiles: #[-3:]:
+            for fn in infiles[self.startfile:self.endfile]: 
                 with z.open(fn) as f:
                     print(f' -- processing {fn}')
                     t = pd.read_csv(f,low_memory=False,
@@ -124,6 +173,7 @@ class Read_FF():
                     
                     dflist.append(t)
         final = pd.concat(dflist,sort=True)
+        final = self.clean_cols(final,cols=varsToKeep)
         return final
 
     def import_skytruth_as_str(self,varsToKeep=['UploadKey','APINumber',
@@ -153,6 +203,7 @@ class Read_FF():
                                 dtype=dtypes,
                                 na_values=self.missing_values)
                 t['raw_filename'] = 'SkyTruth'
+        t = self.clean_cols(t,cols=varsToKeep)
         return t
     
     
@@ -198,6 +249,7 @@ class Read_FF():
                                        t.APINumber + 'XXXX',
                                        t.APINumber)
                 t['ingKeyPresent'] = True  # all SkyTruth events have chem records
+        t = self.clean_cols(t)
         return t
 
     def import_all(self,inc_skyTruth=True): 

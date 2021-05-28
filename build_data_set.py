@@ -12,12 +12,13 @@ directories.
 
     
 """
-bulk_fn = 'ff_archive_2021-04-30'
+#bulk_fn = 'ff_archive_2021-03-05'
+bulk_fn = 'currentData'
 make_output_files = False
 do_abbrev = False
 
-startfile = 0  # 0 for no limit
-endfile = None  # None for no limit
+startfile = 0  # 0 for full set
+endfile = None  # None for no upper limit
 inc_skyTruth = True
 #inc_skyTruth = False
 
@@ -38,3 +39,4 @@ t = set_const.Data_set_constructor(bulk_fn=bulk_fn, const_mode=mode,
                                    endfile=endfile,
                                    abbreviated=do_abbrev)\
              .create_full_set(inc_skyTruth=inc_skyTruth)
+

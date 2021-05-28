@@ -85,6 +85,9 @@ class Data_set_constructor():
                              endfile=self.endfile).\
                                   import_all(inc_skyTruth=inc_skyTruth)
         self._banner('Table_manager')
+        mark_missing = ['CASNumber','IngredientName','Supplier','OperatorName']
+        for col in mark_missing:
+            raw_df[col].fillna('MISSING',inplace=True)
         tab_const.assemble_all_tables(raw_df)
         raw_df = None
         

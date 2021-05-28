@@ -4,15 +4,27 @@ Created on Sun Jan 20 11:14:52 2019
 
 @author: GWAllison
 
-Provides two functions:
-    
-    - Determine if a string is a valid CAS number by the strictest format
-    - Try to coerce a string to a CAS format by deleting extra characters
-       and adjusting zeros.  Many FracFocus cas inputs break the strictest
-       CAS format with these simple deviations.  
     
 """
 import re
+import string
+
+def na_check(df,collst=['CASNumber','IngredientName',
+                        'OperatorName','Supplier'],
+             txt = ''):
+    """Used to flag the unexpected condition of NaN in some columns.  Only
+    reports if this condition is found."""
+    printed_header = False
+    for col in collst:
+        if col in df.columns:
+            num = df[col].isna().sum()
+            if num>0:
+                if not printed_header:
+                    printed_header=True
+                    print(f'  ** NaN check: {txt} **')
+                miss = (df[col]=='missing').sum()
+                MISS = (df[col]=='MISSING').sum()
+                print(f'     -- {col} has {num} NA, {miss} missing and {MISS} MISSING')
 
 def is_valid_CAS_code(cas):
     """Returns boolean.
@@ -86,5 +98,45 @@ def gen_check_digit(left='7732', middle='18'):
         accum += (i+1)*int(digit)
     print(accum%10)
     
+def remove_non_printable(s):
+    rem = [9,10,11,12,13]
+    out = ''
+    for c in s:
+        if not ord(c) in rem:
+            out += c
+    return out
+
+def has_non_printable(s):
+    for c in s:
+        if not c in string.printable:
+            print(f'has non-printable {ord(c)} in {s}') 
+
+def show_ord(s):
+    t = ''
+    for c in s:
+        t+= f'{ord(c)}-'
+    print(t)
+
+# =============================================================================
+# def make_clean_casing(bigdf):
+#     """bigdf is all records; returned is two df: 
+#         casing df with cleaned IngredientName
+#         and unique set (CASNumber/IngName)"""
+#     bigdf.CASNumber = bigdf.CASNumber.fillna('MISSING')
+#     bigdf.IngredientName = bigdf.IngredientName.fillna('MISSING')
+#     df = bigdf.groupby(['CASNumber','IngredientName'],as_index=False).size()
+#     df.CASNumber = df.CASNumber.fillna('MISSING')
+#     df['clIngName'] = df.IngredientName.str.strip().str.lower()
+#     df.clIngName = df.clIngName.map(lambda x: remove_non_printable(x))
+#     df['clCAS'] = df.CASNumber.str.strip()
+#     df.clCAS = df.clCAS.map(lambda x: remove_non_printable(x))
+#     #df['cleanDup'] = df.duplicated(subset=['clCAS','clIngName'],
+#     #                               keep=False)
+#     #df['cleanDup_wo'] = df.duplicated(subset=['clCAS','clIngName'])
+#     
+#     casig = df.groupby(['clCAS','clIngName'],as_index=False).size()
+#     return df.drop('size',axis=1), casig.drop('size',axis=1)
+# 
+# =============================================================================
 if __name__ == '__main__':
     gen_check_digit('107','09')    

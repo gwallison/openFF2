@@ -9,43 +9,45 @@ This creates the initial data frame of the CAS master list.
 The CASNumber and IngredientName values are unmodified. They may contain
 new line characters, etc.
 """
-import numpy as np
+#import numpy as np
 import pandas as pd
-import core.Read_FF_from_bulk as rff
 import core.cas_tools as ct
 
 
-def initial_CAS_master_list(zname='./sources/bulk_data/currentData.zip'):
-    old = pd.read_csv('./sources/CAS_master_list.csv',quotechar='$',
+        
+def initial_CAS_master_list(rawdf): # rawdf
+    old = pd.read_csv('./sources/casing_curate_master.csv',quotechar='$',
                             encoding='utf-8')
     old = old[['CASNumber','IngredientName']]
-
-
-    df = rff.Read_FF(zname=zname).import_all_str(varsToKeep=(['CASNumber',
-                                                              'IngredientName']))
-    # we want to be able to see the cells that were really empty of any text, so:
-#    print(f'Num NA in new CAS {df.CASNumber.isna().sum()}')
-#    print(f'Num NA in new ing {df.IngredientName.isna().sum()}')
-    df = df.fillna('MISSING')
-
+    ct.na_check(old,txt='CAS_1 for old')
+    ###############
+    #old.IngredientName = old.IngredientName.str.strip().str.lower()
+    new = rawdf.groupby(['CASNumber','IngredientName'],as_index=False).size()
 # =============================================================================
-#     df['CASNumber'] = np.where(df.CASNumber=='','_empty_in_raw_',df.CASNumber)
-#     df['IngredientName'] = np.where(df.IngredientName=='','_empty_in_raw_',df.IngredientName)
+#     xlate, new = ct.make_clean_casing(rawdf[['CASNumber','IngredientName']].copy())
+#     xlate = xlate.sort_values(['CASNumber','IngredientName']).reset_index(drop=True)
+#     xlate['iCAS_ing'] = xlate.index
+#     # make new CAS_ING translate file
+#     xlate.to_csv('./sources/CAS_ING_xlateNEW.csv',quotechar='$',encoding='utf-8',
+#                  index=False)
 # 
 # =============================================================================
-    new = df.groupby(['CASNumber','IngredientName']).size().reset_index()
-    new = new[['CASNumber','IngredientName']]
-    
+    print('checking for non printables in CASNumber...')
+    new.CASNumber.map(lambda x: ct.has_non_printable(x))
+    print('checking for non printables in IngredientName...')
+    new.IngredientName.map(lambda x: ct.has_non_printable(x))
+
+
     mg = pd.merge(new,old,on=['CASNumber','IngredientName'],
                   how = 'outer',indicator=True)
+    ct.na_check(old,txt='CAS_1 for mg')
     new = mg[mg['_merge']=='left_only'].copy() # only want new stuff
     new = new[['CASNumber','IngredientName']]    
     new['clean_wo_work'] = new.CASNumber.map(lambda x: ct.is_valid_CAS_code(x))
     
     new['tent_CAS'] = new.CASNumber.map(lambda x:ct.cleanup_cas(x))
     new['valid_after_cleaning'] = new.tent_CAS.map(lambda x: ct.is_valid_CAS_code(x))
-
-    #print(f'Num NA in new CAS {new.CASNumber.isna().sum()}')
-    #print(f'Num NA in new ing {new.IngredientName.isna().sum()}')
+    ct.na_check(old,txt='CAS_1 for new')
+    
     
     return new
