@@ -40,154 +40,385 @@ class Template_data_set():
         self.pkl_fn = self.pkldir+self.set_name+'_df.pkl'
         self.pkl_when_creating = pkl_when_creating
         self.force_new_creation = force_new_creation
-        
+
         self.t_man = c_tab.Table_constructor(pkldir=self.pkldir)
         self.table_date = self.t_man.get_table_creation_date()
         if self.table_date==False:
-            banner(f"Pickles for data tables don't exist for {self.bulk_fn}.")
-            banner('Run "build_data_set.py" first')
+            banner(f"!!! Pickles for data tables don't exist for {self.bulk_fn}.")
+            banner('      * Run "build_data_set.py" first *')
             exit()
-
-    def prep_for_creation(self):        
-        # workTables: point to set of tables to manipulate for current data set
-        self.wT = self.t_man.tables
-        ct.na_check(self.wT['records'],txt=' prep_for_creation: records')
-        ct.na_check(self.wT['disclosures'],txt=' prep_for_creation: disclosures')
+        self.wC = {}
+        self.choose_fields()
         
-        #print('in self.wT:')
-        #print(self.wT['records'].columns)
-        
-        self.wC = {} # this is the set of working columns
-        for t in self.wT.keys():
-            self.wC[t] = set()
-            
-    def show_source_columns(self):
-        self.t_man.load_pickled_tables()
-        self.prep_for_creation()
-        print(self.wT.keys())
-        for t in self.wT.keys():
-            print(f'{t}:\n{self.wT[t].columns}')
-
-    def pickle_is_valid(self):
+    def pickle_is_valid(self,verbose=False):
         try:
             df_date = modification_date(self.pkl_fn)
-            print(f'Pickle created: {df_date}')
+            if verbose:
+                print(f'Pickle created: {df_date}')
             return True
         except:
             return False
     
-    def add_fields_to_keep(self,to_add = {}):
-        # ex. {'records' : ['eh_blah_blah'], 'disclosures': ['WellName']}
-        for tname in to_add.keys():
-            for fn in to_add[tname]:
-                self.wC[tname].add(fn)
+    def get_fn_list(self):
+        s = set()
+        for t in self.wC.keys():
+            for c in self.wC[t]:
+                s.add(c)
+        return list(s)
 
-
-    def keep_all_fields(self):
-        for t in self.t_man.tables.keys():
-            for fn in list(self.t_man.tables[t].columns):
-                self.wC[t].add(fn) 
-                
-    def keep_mininal_fields(self):
-        self.wC['disclosures'] = set(['UploadKey','date','APINumber'])
-        self.wC['records'] = set(['UploadKey','bgCAS','calcMass','PercentHFJob'])
-        
-    def keep_basic_fields(self):
-        self.wC['disclosures'] = set(['UploadKey','date','APINumber',
-                                     'bgStateName','bgCountyName',
-                                     'bgLatitude','bgLongitude',
-                                     'TotalBaseWaterVolume','TotalBaseNonWaterVolume',
-                                     'TVD','bgOperatorName','primarySupplier']
-                                     )
-        self.wC['records'] = set(['UploadKey',
-                                 'bgCAS','calcMass','category','PercentHFJob',
-                                 'Purpose','TradeName','bgSupplier'])
-        self.wC['bgCAS'] = set(['bgCAS','bgIngredientName'])
-        
-    def keep_basic_fields_with_original(self):
-        self.keep_basic_fields()
-        self.add_fields_to_keep({'disclosures':['StateName','CountyName',
-                                                'Latitude','Longitude',
-                                                'OperatorName','WellName'],
-                                 'records':['CASNumber','IngredientName',
-                                            'Supplier']})
-        
-    def std_filter(self):
-        t = self.wT['disclosures']
-        print(len(t))
-        cond = (t.is_duplicate)|(t.no_chem_recs)
-        t = t[~cond].copy()
-        print(len(t))
-        self.wT['disclosures'] = t
-        
-        t = self.wT['records']
-        print(len(t))
-        t = t[~(t.dup_rec)].copy()
-        self.wT['records'] = t
-        print(len(t))
-
+    def add_fields_to_keep(self,field_dict = {'bgCAS':['is_on_TEDX']}):
+        for table in field_dict.keys():
+            for col in field_dict[table]:
+                self.wC[table].add(col)
                 
     def pickle_set(self):
         self.df.to_pickle(self.pkl_fn)
 
-    def get_set(self,verbose=True):
-        if (self.pickle_is_valid())&~(self.force_new_creation):
-            print('Using saved pickle of analysis set...')
-            t = pd.read_pickle(self.pkl_fn)
-        else:
-            print('Creating data set from scratch...')
-            self.t_man.load_pickled_tables()
-            self.prep_for_creation()
-            self.create_set()
-            t = self.df
-        if verbose:
-            print(f'Dataframe ***"{self.set_name}"***\n')
-            print(t.info())
-        return t
-    
-
-    def merge_tables(self):
-        if self.location_only:
-            self.df = self.wT['disclosures'][self.wC['disclosures']].copy()
-        else:
-            self.df = pd.merge(self.wT['disclosures'][self.wC['disclosures']],
-                               self.wT['records'][self.wC['records']],
-                               on='UploadKey',
-                               how='inner',validate='1:m')
-            if len(self.wC['bgCAS'])>0:
-                self.df = pd.merge(self.df,
-                                   self.wT['bgCAS'][self.wC['bgCAS']],
-                                   on='bgCAS',
-                                   how='left',validate='m:1')        
-
     def create_set(self):
-        self.location_only = False
-        self.keep_basic_fields_with_original()
-        #self.keep_mininal_fields()
-        #self.keep_all_fields()
-        #self.std_filter()
-        #print(self.wC)
         self.merge_tables()
         if self.pkl_when_creating:
             self.pickle_set()
+
+    def get_set(self,verbose=False):
+        if (self.pickle_is_valid())&~(self.force_new_creation):
+            if verbose:
+                print('Using saved pickle of analysis set...')
+            self.df = pd.read_pickle(self.pkl_fn)
+        else:
+            if verbose:
+                print('Creating data set from scratch...')
+            self.t_man.load_pickled_tables()
+            self.prep_for_creation()
+            self.create_set()
+        if verbose:
+            print(f'Dataframe ***"{self.set_name}"***\n')
+            print(self.df.info())
+        return self.df
+    
+    def prep_for_creation(self):        
+        # workTables: point to set of tables to manipulate for current data set
+        self.make_work_tables()
+        ct.na_check(self.wRec,txt=' prep_for_creation: records')
+        ct.na_check(self.wDisc,txt=' prep_for_creation: disclosures')
+            
+    def choose_fields(self):
+        pass
+    def merge_tables(self):
+        #print(f'in template merge: {self.wC}')
+        pass
+    def make_work_tables(self):
+        pass
+
+class Standard_data_set(Template_data_set):
+    
+    def __init__(self,bulk_fn='currentData',
+                 sources='./sources/',
+                 outdir='./out/',
+                 set_name = 'standard filtered',
+                 pkl_when_creating=True,
+                 force_new_creation=False):
+
+        Template_data_set.__init__(self,bulk_fn=bulk_fn,
+                           sources=sources,
+                           outdir=outdir,
+                           set_name=set_name,
+                           pkl_when_creating=pkl_when_creating,
+                           force_new_creation=force_new_creation)
+
+
+
+
         
+        
+    def make_work_tables(self):
+        cond = ~(self.t_man.tables['disclosures'].is_duplicate) &\
+               ~(self.t_man.tables['disclosures'].no_chem_recs)
+        self.wDisc = self.t_man.tables['disclosures'][cond].copy()
+        
+        cond = ~(self.t_man.tables['records'].dup_rec)
+        self.wRec = self.t_man.tables['records'][cond].copy()
+        
+        self.wBgCAS = self.t_man.tables['bgCAS'].copy()
+        
+    def keep_basic_fields(self):
+        self.wC['disclosures'] = set(['StateName','CountyName',
+                                      'Latitude','Longitude',
+                                      'OperatorName','WellName',
+                                      'UploadKey','date','APINumber',
+                                     'bgStateName','bgCountyName',
+                                     'bgLatitude','bgLongitude',
+                                     'TotalBaseWaterVolume','TotalBaseNonWaterVolume',
+                                     'TVD','bgOperatorName','primarySupplier',
+                                     'has_curated_carrier']
+                                     )
+        self.wC['records'] = set(['UploadKey','CASNumber','IngredientName',
+                                            'Supplier','curated_carrier_rec'
+                                 'bgCAS','calcMass','category','PercentHFJob',
+                                 'Purpose','TradeName','bgSupplier'])
+        self.wC['bgCAS'] = set(['bgCAS','bgIngredientName'])
         
 
-class Std_filtered(Template_data_set):
+
+    def merge_tables(self):
+        #print(f'in std merge: {self.wC}')
+        self.df = pd.merge(self.wDisc[self.wC['disclosures']],
+                           self.wRec[self.wC['records']],
+                           on='UploadKey',
+                           how='inner',validate='1:m')
+        self.df = pd.merge(self.df,
+                           self.wBgCAS[self.wC['bgCAS']],
+                           on='bgCAS',
+                           how='left',validate='m:1')        
+
+    def choose_fields(self):
+        self.keep_basic_fields()
+          
+class Standard_with_externals(Standard_data_set):
+    """like standard_data_set but with external data sets"""
     def __init__(self,bulk_fn='currentData',
                  sources='./sources/',
                  outdir='./out/',
                  pkl_when_creating = True,
-                 set_name='std_filtered'):
+                 set_name='std filtered with extrnls',
+                 force_new_creation=True):
+        Standard_data_set.__init__(self,bulk_fn=bulk_fn,
+                           sources=sources,
+                           outdir=outdir,
+                           pkl_when_creating=pkl_when_creating,
+                           set_name=set_name,
+                           force_new_creation=force_new_creation)        
+
+    def choose_fields(self):
+        self.keep_basic_fields()
+        self.add_fields_to_keep({'bgCAS':['is_on_TEDX','is_on_prop65',
+                                          'is_on_CWA_SDWA','we_Pathway',
+                                          'eh_Class_L1','eh_Class_L2']})
+
+class Standard_location(Standard_data_set):
+    """like standard_data_set but just location fields"""
+    def __init__(self,bulk_fn='currentData',
+                 sources='./sources/',
+                 outdir='./out/',
+                 pkl_when_creating = True,
+                 set_name='std filtered loc only',
+                 force_new_creation=True):
+        Standard_data_set.__init__(self,bulk_fn=bulk_fn,
+                           sources=sources,
+                           outdir=outdir,
+                           pkl_when_creating=pkl_when_creating,
+                           set_name=set_name,
+                           force_new_creation=force_new_creation)        
+
+        
+    def merge_tables(self):
+        #print(f'in std loc merge: {self.wC}')
+        # no merging required; ignore all but disclosure table
+        self.df = self.wDisc[self.wC['disclosures']]
+
+
+class Full_set(Template_data_set):
+    def __init__(self,bulk_fn='currentData',
+                 sources='./sources/',
+                 outdir='./out/',
+                 pkl_when_creating = False,
+                 set_name='full no filter',
+                 force_new_creation=True):
         Template_data_set.__init__(self,bulk_fn=bulk_fn,
                            sources=sources,
                            outdir=outdir,
                            pkl_when_creating=pkl_when_creating,
-                           set_name=set_name)
+                           set_name=set_name,
+                           force_new_creation=force_new_creation)
     
-    def create_set(self):
-        self.std_filter()
-        self.keep_basic_fields_with_original()
+    def keep_all_fields(self):
+        # for all field, we must have access to all t_man tables, so must load them
+        self.t_man.load_pickled_tables()
+        self.wC = {}
+        for t in self.t_man.tables.keys():
+            self.wC[t] = set()
+            for fn in list(self.t_man.tables[t].columns):
+                self.wC[t].add(fn) 
 
-        if self.pkl_when_creating:
-            self.pickle_set()
+    def make_work_tables(self):
+        #cond = ~(self.t_man.tables['disclosures'].is_duplicate) &\
+        #       ~(self.t_man.tables['disclosures'].no_chem_recs)
+        self.wDisc = self.t_man.tables['disclosures'].copy()
+        #cond = ~(self.t_man.tables['records'].dup_rec)
+        self.wRec = self.t_man.tables['records'].copy()       
+        self.wBgCAS = self.t_man.tables['bgCAS'].copy()
+
+
+    def choose_fields(self):
+        self.keep_all_fields()
+
+    def merge_tables(self):
+        #print(f'in full merge: {self.wC}')
+        self.df = pd.merge(self.wDisc,
+                           self.wRec,
+                           on='UploadKey',
+                           how='inner',validate='1:m')
+        self.df = pd.merge(self.df,
+                           self.wBgCAS,
+                           on='bgCAS',
+                           how='left',validate='m:1')        
+        self.df['in_std_filtered'] = ~(self.df.is_duplicate)&\
+                                     ~(self.df.no_chem_recs)&\
+                                     ~(self.df.dup_rec)
+
+class Catalog_set(Full_set):
+    # used to make the catalog, keeps full data, but filter flag too for partitioning
+    def __init__(self,bulk_fn='currentData',
+                 sources='./sources/',
+                 outdir='./out/',
+                 pkl_when_creating = False,
+                 set_name='catalog set',
+                 force_new_creation=True):
+        Full_set.__init__(self,bulk_fn=bulk_fn,
+                           sources=sources,
+                           outdir=outdir,
+                           pkl_when_creating=pkl_when_creating,
+                           set_name=set_name,
+                           force_new_creation=force_new_creation)
+
+    def keep_catalog_fields(self):
+        self.wC['disclosures'] = set(['StateName','CountyName',
+                                      'Latitude','Longitude',
+                                      'OperatorName','WellName',
+                                      'UploadKey','date','APINumber',
+                                     'bgStateName','bgCountyName',
+                                     'bgLatitude','bgLongitude',
+                                     'TotalBaseWaterVolume','TotalBaseNonWaterVolume',
+                                     'TVD','bgOperatorName','primarySupplier',
+                                     'is_duplicate','no_chem_recs',
+                                     'has_TBWV','has_water_carrier',
+                                     'has_curated_carrier',
+                                     'within_total_tolerance','data_source']
+                                     )
+        self.wC['records'] = set(['UploadKey','CASNumber','IngredientName',
+                                  'Supplier','PercentHighAdditive',
+                                 'bgCAS','calcMass','category','PercentHFJob',
+                                 'Purpose','TradeName','bgSupplier',
+                                 'dup_rec','curated_carrier_rec','is_water_carrier'])
+        self.wC['bgCAS'] = set(['bgCAS','bgIngredientName','is_on_TEDX',
+                                'is_on_prop65','is_on_CWA_SDWA'])
+
+    def choose_fields(self):
+        self.keep_catalog_fields()
+        
+    def merge_tables(self):
+        #print(f'in catalog set: {self.wC}')
+        self.df = pd.merge(self.wDisc[self.wC['disclosures']],
+                           self.wRec[self.wC['records']],
+                           on='UploadKey',
+                           how='inner',validate='1:m')
+        self.df = pd.merge(self.df,
+                           self.wBgCAS[self.wC['bgCAS']],
+                           on='bgCAS',
+                           how='left',validate='m:1')        
+        self.df['in_std_filtered'] = ~(self.df.is_duplicate)&\
+                                     ~(self.df.no_chem_recs)&\
+                                     ~(self.df.dup_rec)
+
+
+
+class Full_location(Full_set):
+    def __init__(self,bulk_fn='currentData',
+                 sources='./sources/',
+                 outdir='./out/',
+                 pkl_when_creating = False,
+                 set_name='full location only',
+                 force_new_creation=True):
+        Full_set.__init__(self,bulk_fn=bulk_fn,
+                           sources=sources,
+                           outdir=outdir,
+                           pkl_when_creating=pkl_when_creating,
+                           set_name=set_name,
+                           force_new_creation=force_new_creation)
+
+    
+    def merge_tables(self):
+        #print(f'in full loc merge: {self.wC}')
+        self.df = self.wDisc
+        self.df['in_std_filtered'] = ~(self.df.is_duplicate)&\
+                                     ~(self.df.no_chem_recs)
+    
+    
+class Min_filtered(Standard_data_set):
+    def __init__(self,bulk_fn='currentData',
+                 sources='./sources/',
+                 outdir='./out/',
+                 pkl_when_creating = True,
+                 set_name='mininal filtered',
+                 force_new_creation=True):
+        Standard_data_set.__init__(self,bulk_fn=bulk_fn,
+                           sources=sources,
+                           outdir=outdir,
+                           pkl_when_creating=pkl_when_creating,
+                           set_name=set_name,
+                           force_new_creation=force_new_creation)
+    
+    def keep_mininal_fields(self):
+        self.wC['disclosures'] = set(['UploadKey','date','APINumber'])
+        self.wC['records'] = set(['UploadKey','bgCAS','calcMass','PercentHFJob'])
+
+    def choose_fields(self):
+        self.keep_mininal_fields()
+    def merge_tables(self):
+        #print(f'in min filter merge: {self.wC}')
+        self.df = pd.merge(self.wDisc[self.wC['disclosures']],
+                           self.wRec[self.wC['records']],
+                           on='UploadKey',
+                           how='inner',validate='1:m')
+
+
+class Min_filtered_location(Min_filtered):
+    def __init__(self,bulk_fn='currentData',
+                 sources='./sources/',
+                 outdir='./out/',
+                 pkl_when_creating = True,
+                 set_name='minimal filtered loc only',
+                 force_new_creation=True):
+        Min_filtered.__init__(self,bulk_fn=bulk_fn,
+                           sources=sources,
+                           outdir=outdir,
+                           pkl_when_creating=pkl_when_creating,
+                           set_name=set_name,
+                           force_new_creation=force_new_creation)
+
+    def merge_tables(self):
+        #print(f'in min filter loc merge: {self.wC}')
+        # no merging required; ignore all but disclosure table
+        self.df = self.wDisc[self.wC['disclosures']]
+    
+class Min_no_filter(Standard_data_set):
+    def __init__(self,bulk_fn='currentData',
+                 sources='./sources/',
+                 outdir='./out/',
+                 pkl_when_creating = True,
+                 set_name='minimal no filter',
+                 force_new_creation=True):
+
+        Standard_data_set.__init__(self,bulk_fn=bulk_fn,
+                           sources=sources,
+                           outdir=outdir,
+                           pkl_when_creating=pkl_when_creating,
+                           set_name=set_name,
+                           force_new_creation=force_new_creation)
+    
+    def keep_mininal_fields(self):
+        self.wC['disclosures'] = set(['UploadKey','date','APINumber'])
+        self.wC['records'] = set(['UploadKey','bgCAS','calcMass','PercentHFJob'])
+
+    def choose_fields(self):
+        self.keep_mininal_fields()
+
+    def make_work_tables(self):
+        self.wDisc = self.t_man.tables['disclosures'].copy()
+        self.wRec = self.t_man.tables['records'].copy()       
+
+    def merge_tables(self):
+        #print(f'in min no filter merge: {self.wC}')
+        self.df = pd.merge(self.wDisc[self.wC['disclosures']],
+                           self.wRec[self.wC['records']],
+                           on='UploadKey',
+                           how='inner',validate='1:m')

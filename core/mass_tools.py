@@ -13,14 +13,29 @@ upper_perc_tolerance = 105
 
 def calc_overall_percentages(rec_df,disc_df):
     """across the whole disclosure"""
-    gb = rec_df[~rec_df.dup_rec].groupby('UploadKey',as_index=False)['PercentHFJob'].sum()
+    #print(f'upk in rec_df = {len(rec_df.UploadKey.unique())}, len disc = {len(disc_df)}')
+    c0 = ~(rec_df.bgCAS=='ambiguous')
+    if 'curated_carrier_rec' in rec_df.columns:
+        c1 = rec_df.curated_carrier_rec.notna()
+    else:
+        c1 = False
+    has_useable_perc = (c0 | c1) & (rec_df.PercentHFJob>0)
+    gb = rec_df[has_useable_perc & ~(rec_df.dup_rec)].groupby('UploadKey',as_index=False)['PercentHFJob'].sum()
     gb.columns = ['UploadKey','totalPercent']
-    c1 = gb.totalPercent>lower_perc_tolerance
+    #print(f'total percent na: {gb.totalPercent.isna().sum()}, len gb: {len(gb)}')
+    c3 = gb.totalPercent>lower_perc_tolerance
     c2 = gb.totalPercent<upper_perc_tolerance
-    gb['within_total_tolerance'] =c1&c2
-    disc_df = pd.merge(disc_df,gb,on='UploadKey',how='left',
+    gb['within_total_tolerance'] =c2&c3
+    if 'within_total_tolerance' in disc_df.columns:
+        disc_df = disc_df.drop(['within_total_tolerance','totalPercent'],axis=1)
+    disc_df = pd.merge(disc_df,gb,
+                       on='UploadKey',how='left',
                        validate='1:1')
-    #print(f'in calc_ {len(disc_df)}')
+    # do following 'where' to catch disclosures not matching expectations --> False
+    disc_df.within_total_tolerance = np.where(disc_df.within_total_tolerance==True,
+                                              True,
+                                              False)
+    #print(f'disc len {len(disc_df)}, wi_tot_tol na: {disc_df.within_total_tolerance.isna().sum()}')
     return disc_df
 
 def calc_MI_values(rec_df,disc_df):
@@ -80,21 +95,22 @@ def prep_datasets(rec_df,disc_df):
     rec_df['large_percent_rec'] = rec_df.PercentHFJob>large_perc_value
     rec_df['is_water_carrier'] = rec_df.large_percent_rec & \
                                  (rec_df.bgCAS=='7732-18-5') &\
-                                 ~(rec_df.dup_rec) &\
-                                 rec_df.UploadKey.isin(upk)
+                                 ~(rec_df.dup_rec) 
+    hasWC = rec_df[rec_df.is_water_carrier].UploadKey.unique().tolist()
+    disc_df['has_water_carrier'] = disc_df.UploadKey.isin(hasWC)
+    rec_df.is_water_carrier= rec_df.is_water_carrier & rec_df.UploadKey.isin(upk)
+
+    return rec_df,disc_df                             
+     
+
+
+def calc_mass(rec_df,disc_df):
     disc_df = calc_MI_values(rec_df, disc_df)
-                             
+    #upk = disc_df[disc_df.within_total_tolerance].UploadKey.unique().tolist()
+    #cond = rec_df.UploadKey.isin(upk)                             
+
     # because we are dependent on 50% and within tolerance, we
     # don't merge for those disclosures out of tolerance, too many multiple 50%'ers. 
-
-    cond = rec_df.UploadKey.isin(upk)                             
-# =============================================================================
-#     t = rec_df[(rec_df.is_water_carrier)&cond][['PercentHFJob','UploadKey']].copy()
-#     t.columns = ['carrier_percent','UploadKey']
-#     disc_df = pd.merge(disc_df,t,on='UploadKey',
-#                        how='left',validate='1:1')
-# =============================================================================
-    
     cond = disc_df.within_total_tolerance&disc_df.has_TBWV
     disc_df.carrier_percent = np.where(cond,
                                        disc_df.carrier_percent,
